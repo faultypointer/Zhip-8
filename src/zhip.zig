@@ -28,6 +28,7 @@ pub const Zhip = struct {
             ._reg_i = 0,
             ._reg_dt = 0,
             ._reg_st = 0,
+            ._reg_ir = 0,
             ._pc = 0,
             ._sp = 0,
             ._stack = undefined,
@@ -83,5 +84,16 @@ pub const Zhip = struct {
         const file = try std.fs.cwd().openFile(filename, .{});
         _ = try file.readAll(self._ram[0x200..]);
         self._pc = 0x200;
+    }
+
+    pub fn run(self: *Zhip) void {
+        self.fetch();
+    }
+
+    fn fetch(self: *Zhip) void {
+        self._reg_ir = self._ram[self._pc];
+        self._pc += 1;
+        self._reg_ir <<= 8;
+        self._reg_ir += self._ram[self._pc];
     }
 };
