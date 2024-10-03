@@ -5,9 +5,28 @@ const Zhip = zhip_mod.Zhip;
 
 const PIXEL_SCALE = 20;
 
+const KEY_MAP = [_]rl.KeyboardKey{
+    .key_x,
+    .key_one,
+    .key_two,
+    .key_three,
+    .key_q,
+    .key_w,
+    .key_e,
+    .key_a,
+    .key_s,
+    .key_d,
+    .key_z,
+    .key_c,
+    .key_four,
+    .key_r,
+    .key_f,
+    .key_v,
+};
+
 pub fn main() !void {
     var zhip = Zhip.init();
-    try zhip.loadRomFromFile("roms/ibm.ch8");
+    try zhip.loadRomFromFile("roms/test_opcode.ch8");
     const screenWidth = zhip_mod.DISPLAY_WIDTH * PIXEL_SCALE;
     const screenHeight = zhip_mod.DISPLAY_HEIGHT * PIXEL_SCALE;
 
@@ -18,6 +37,21 @@ pub fn main() !void {
 
     while (!rl.windowShouldClose()) {
         zhip.runCycle();
+
+        // key stuff
+        // key down
+        for (0..KEY_MAP.len) |i| {
+            if (rl.isKeyDown(KEY_MAP[i])) {
+                zhip.keys[i] = 1;
+                std.debug.print("{d}", .{zhip.keys});
+            }
+        }
+        // key up
+        for (0..KEY_MAP.len) |i| {
+            if (rl.isKeyUp(KEY_MAP[i])) {
+                zhip.keys[i] = 0;
+            }
+        }
 
         rl.beginDrawing();
         defer rl.endDrawing();

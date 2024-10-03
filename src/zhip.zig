@@ -4,6 +4,7 @@ pub const DISPLAY_WIDTH: usize = 64;
 pub const DISPLAY_HEIGHT: usize = 32;
 const MEMORY_SIZE: usize = 4 * 1024;
 const STACK_SIZE: usize = 16;
+const CHARACTER_SPRITE_START: usize = 0x50;
 
 // Struct that represents a chip 8 emulator
 pub const Zhip = struct {
@@ -73,7 +74,7 @@ pub const Zhip = struct {
             0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
             0xF0, 0x80, 0xF0, 0x80, 0x80, // F
         };
-        @memcpy(zhip._ram[0x50..0xA0], &chracters_sprite);
+        @memcpy(zhip._ram[CHARACTER_SPRITE_START..0xA0], &chracters_sprite);
 
         return zhip;
     }
@@ -87,6 +88,14 @@ pub const Zhip = struct {
     pub fn runCycle(self: *Zhip) void {
         self.fetch();
         self.decodeAndExecute();
+
+        // independent of run cycle??
+        if (self._reg_dt > 0) {
+            self._reg_dt -= 1;
+        }
+        if (self._reg_st > 0) {
+            self._reg_st -= 1;
+        }
     }
 
     fn fetch(self: *Zhip) void {
@@ -102,7 +111,7 @@ pub const Zhip = struct {
             0 => {
                 switch (self._reg_ir & 0x000F) {
                     0 => self.clearDisplay(),
-                    // 0xE => self.returnFromSubroutine(),
+                    0xE => self.returnFromSubroutine(),
                     else => self.panicOnUnknownInstruction(),
                 }
             },
@@ -117,7 +126,29 @@ pub const Zhip = struct {
             9 => self.skipNextInstructionIfVxNotEqualsVy(),
             0xA => self.loadIRegister(),
             0xB => self.jumpToAddrPlusOffset(),
+            0xC => self.setRegisterRandom(),
             0xD => self.drawSprite(),
+            0xE => {
+                switch (self._reg_ir & 0x00FF) {
+                    0x9E => self.skipIfKeyUp(),
+                    0xA1 => self.skipIfKeyDown(),
+                    else => self.panicOnUnknownInstruction(),
+                }
+            },
+            0xF => {
+                switch (self._reg_ir & 0xFF) {
+                    0x07 => self.setRegisterToDelay(),
+                    0x0A => self.waitUntilKeyPress(),
+                    0x15 => self.setDelayToRegister(),
+                    0x18 => self.setSoundToRegister(),
+                    0x1E => self.addToIRegister(),
+                    0x29 => self.setIRegisterToCharacter(),
+                    0x33 => self.storeBCD(),
+                    0x55 => self.storeRegistersInMemory(),
+                    0x65 => self.loadRegistersFromMemory(),
+                    else => self.panicOnUnknownInstruction(),
+                }
+            },
             else => self.panicOnUnknownInstruction(),
         }
     }
@@ -145,7 +176,7 @@ pub const Zhip = struct {
 
     // 0x3XNN; skips next instruction if Vx equals NN
     fn skipNextInstructionIfEqual(self: *Zhip) void {
-        const Vx: u8 = self._reg_ir[self.getXIndex()];
+        const Vx: u8 = self._reg[self.getXIndex()];
         const nibble: u8 = @truncate(self._reg_ir);
         if (Vx == nibble) {
             self._pc += 2;
@@ -154,7 +185,7 @@ pub const Zhip = struct {
 
     // 0x4XNN; skips if Vx not equal to NN
     fn skipNextInstructionIfNotEqual(self: *Zhip) void {
-        const Vx: u8 = self._reg_ir[self.getXIndex()];
+        const Vx: u8 = self._reg[self.getXIndex()];
         const nibble: u8 = @truncate(self._reg_ir);
         if (Vx != nibble) {
             self._pc += 2;
@@ -163,8 +194,8 @@ pub const Zhip = struct {
 
     // 0x5XY0
     fn skipNextInstructionIfVxEqualsVy(self: *Zhip) void {
-        const Vx: u8 = self._reg_ir[self.getXIndex()];
-        const Vy: u8 = self._reg_ir[self.getYIndex()];
+        const Vx: u8 = self._reg[self.getXIndex()];
+        const Vy: u8 = self._reg[self.getYIndex()];
         if (Vx == Vy) {
             self._pc += 2;
         }
@@ -172,8 +203,8 @@ pub const Zhip = struct {
 
     // 0x9XY0
     fn skipNextInstructionIfVxNotEqualsVy(self: *Zhip) void {
-        const Vx: u8 = self._reg_ir[self.getXIndex()];
-        const Vy: u8 = self._reg_ir[self.getYIndex()];
+        const Vx: u8 = self._reg[self.getXIndex()];
+        const Vy: u8 = self._reg[self.getYIndex()];
         if (Vx != Vy) {
             self._pc += 2;
         }
@@ -181,8 +212,8 @@ pub const Zhip = struct {
     // 0x8XY0;
     // all the instructions of this type involves register Vx or Vy or both
     fn handle8XY(self: *Zhip) void {
-        const Vx = &self._reg_ir[self.getXIndex()];
-        const Vy = &self._reg_ir[self.getYIndex()];
+        const Vx = &self._reg[self.getXIndex()];
+        const Vy = &self._reg[self.getYIndex()];
         const nibble: u4 = @truncate(self._reg_ir);
         switch (nibble) {
             0x0 => Vx.* = Vy.*,
@@ -190,21 +221,25 @@ pub const Zhip = struct {
             0x2 => Vx.* = Vx.* & Vy.*,
             0x3 => Vx.* = Vx.* ^ Vy.*,
             0x4 => {
-                const result: u16 = Vx.* + Vy.*;
+                const big_vx: u16 = @intCast(Vx.*);
+                const big_vy: u16 = @intCast(Vy.*);
+                const result: u16 = big_vx + big_vy;
                 Vx.* = @truncate(result);
-                self._reg[0xF] = (result >> 8);
+                self._reg[0xF] = @truncate(result >> 8);
             },
             0x5, 0x7 => {
-                const result: i8 = Vx.* - Vy.*;
+                const signed_vx: i16 = @intCast(Vx.*);
+                const signed_vy: i16 = @intCast(Vy.*);
+                var result: i16 = signed_vx - signed_vy;
                 if (nibble == 0x7) {
                     result = -result;
                 }
                 if (result < 0) {
                     self._reg[0xF] = 0;
-                    Vx.* = 0x100 + result;
+                    Vx.* = @intCast(0xFF + result);
                 } else {
                     self._reg[0xF] = 1;
-                    Vx.* = result;
+                    Vx.* = @intCast(result);
                 }
             },
             0x6 => {
@@ -237,13 +272,27 @@ pub const Zhip = struct {
     // 7XNN; adds NN to Vx; result in Vx
     fn addToRegister(self: *Zhip) void {
         const index = self.getXIndex();
-        self._reg[index] += @intCast(self._reg_ir & 0x00FF);
+        const byte: u8 = @truncate(self._reg_ir & 0x00FF);
+        const result = @addWithOverflow(self._reg[index], byte);
+        self._reg[index] = result.@"0";
     }
 
     // ANNN; I register is set to NNN
     fn loadIRegister(self: *Zhip) void {
         const addr = self._reg_ir & 0x0FFF;
         self._reg_i = addr;
+    }
+
+    // CXNN; generate a random byte, AND it with NN and store in Vx
+    fn setRegisterRandom(self: *Zhip) void {
+        var prng = std.rand.DefaultPrng.init(blk: {
+            var seed: u64 = undefined;
+            std.posix.getrandom(std.mem.asBytes(&seed)) catch unreachable;
+            break :blk seed;
+        });
+        const rand = prng.random();
+        const byte: u8 = @truncate(self._reg_ir);
+        self._reg[self.getXIndex()] = rand.int(u8) & byte;
     }
 
     // DXYN; draws N bytes sprite starting from location I
@@ -277,6 +326,77 @@ pub const Zhip = struct {
         }
     }
 
+    // EX9E; skip if the key with value Vx is pressed
+    fn skipIfKeyDown(self: *Zhip) void {
+        if (self.keys[self._reg[self.getXIndex()]] == 1) {
+            self._pc += 2;
+        }
+    }
+
+    // EXA1 skip if the key with value Vx is pressed
+    fn skipIfKeyUp(self: *Zhip) void {
+        if (self.keys[self._reg[self.getXIndex()]] == 0) {
+            self._pc += 2;
+        }
+    }
+    // 0xFX07 set register Vx to value in delay timer register
+    fn setRegisterToDelay(self: *Zhip) void {
+        self._reg[self.getXIndex()] = self._reg_dt;
+    }
+    // 0xFX15 set delay timer register to value in Vx
+    fn setDelayToRegister(self: *Zhip) void {
+        self._reg_dt = self._reg[self.getXIndex()];
+    }
+    // 0xFX18 set sound timer register to value in Vx
+    fn setSoundToRegister(self: *Zhip) void {
+        self._reg_st = self._reg[self.getXIndex()];
+    }
+    // 0xFX1E; adds Value in Vx to value in I register, result in I
+    fn addToIRegister(self: *Zhip) void {
+        self._reg_i += self._reg[self.getXIndex()];
+    }
+    // 0xFX29; loads the location of sprite of character in Vx
+    fn setIRegisterToCharacter(self: *Zhip) void {
+        const start: u16 = @intCast(CHARACTER_SPRITE_START);
+        self._reg_i = start + (self._reg[self.getXIndex()] & 0x0F) * 5;
+    }
+    // 0xFX0A; execution stops until key is pressed
+    fn waitUntilKeyPress(self: *Zhip) void {
+        var key_pressed = false;
+        for (0..0xF) |i| {
+            if (self.keys[i] == 1) {
+                self._reg[self.getXIndex()] = @truncate(i);
+                key_pressed = true;
+            }
+        }
+        if (!key_pressed) {
+            self._pc -= 2;
+        }
+    }
+
+    // 0xFx33 store bcd repr of Vx in I, I+1, I+2
+    fn storeBCD(self: *Zhip) void {
+        var Vx = self._reg[self.getXIndex()];
+
+        self._ram[self._reg_i + 2] = Vx % 10;
+        Vx /= 10;
+        self._ram[self._reg_i + 1] = Vx % 10;
+        self._ram[self._reg_i] = Vx / 10;
+    }
+    // 0xFX55; store register V0 to Vx(inclusive) in memory
+    fn storeRegistersInMemory(self: *Zhip) void {
+        const X = self.getXIndex();
+        for (0..X + 1) |i| {
+            self._ram[self._reg_i + i] = self._reg[i];
+        }
+    }
+    // 0xFX65; load register V0 to Vx(inclusive) from memory
+    fn loadRegistersFromMemory(self: *Zhip) void {
+        const X = self.getXIndex();
+        for (0..X + 1) |i| {
+            self._reg[i] = self._ram[self._reg_i + i];
+        }
+    }
     fn panicOnUnknownInstruction(self: Zhip) noreturn {
         std.debug.panic("unknown instruction: {X:0>4}\n", .{self._reg_ir});
     }
