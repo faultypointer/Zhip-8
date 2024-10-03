@@ -107,12 +107,16 @@ pub const Zhip = struct {
                 }
             },
             1 => self.jumpToAddr(),
-
+            2 => self.callAddress(),
+            3 => self.skipNextInstructionIfEqual(),
+            4 => self.skipNextInstructionIfNotEqual(),
+            5 => self.skipNextInstructionIfVxEqualsVy(),
             6 => self.setRegister(),
             7 => self.addToRegister(),
-
+            8 => self.handle8XY(),
+            9 => self.skipNextInstructionIfVxNotEqualsVy(),
             0xA => self.loadIRegister(),
-
+            0xB => self.jumpToAddrPlusOffset(),
             0xD => self.drawSprite(),
             else => self.panicOnUnknownInstruction(),
         }
@@ -126,10 +130,101 @@ pub const Zhip = struct {
             }
         }
     }
+    // 0x00EE
+    fn returnFromSubroutine(self: *Zhip) void {
+        self._sp -= 1;
+        self._pc = self._stack[self._sp];
+    }
 
+    // 0x2NNN; call address NNN
+    fn callAddress(self: *Zhip) void {
+        self._stack[self._sp] = self._pc;
+        self._sp += 1;
+        self._pc = self._reg_ir & 0x0FFF;
+    }
+
+    // 0x3XNN; skips next instruction if Vx equals NN
+    fn skipNextInstructionIfEqual(self: *Zhip) void {
+        const Vx: u8 = self._reg_ir[self.getXIndex()];
+        const nibble: u8 = @truncate(self._reg_ir);
+        if (Vx == nibble) {
+            self._pc += 2;
+        }
+    }
+
+    // 0x4XNN; skips if Vx not equal to NN
+    fn skipNextInstructionIfNotEqual(self: *Zhip) void {
+        const Vx: u8 = self._reg_ir[self.getXIndex()];
+        const nibble: u8 = @truncate(self._reg_ir);
+        if (Vx != nibble) {
+            self._pc += 2;
+        }
+    }
+
+    // 0x5XY0
+    fn skipNextInstructionIfVxEqualsVy(self: *Zhip) void {
+        const Vx: u8 = self._reg_ir[self.getXIndex()];
+        const Vy: u8 = self._reg_ir[self.getYIndex()];
+        if (Vx == Vy) {
+            self._pc += 2;
+        }
+    }
+
+    // 0x9XY0
+    fn skipNextInstructionIfVxNotEqualsVy(self: *Zhip) void {
+        const Vx: u8 = self._reg_ir[self.getXIndex()];
+        const Vy: u8 = self._reg_ir[self.getYIndex()];
+        if (Vx != Vy) {
+            self._pc += 2;
+        }
+    }
+    // 0x8XY0;
+    // all the instructions of this type involves register Vx or Vy or both
+    fn handle8XY(self: *Zhip) void {
+        const Vx = &self._reg_ir[self.getXIndex()];
+        const Vy = &self._reg_ir[self.getYIndex()];
+        const nibble: u4 = @truncate(self._reg_ir);
+        switch (nibble) {
+            0x0 => Vx.* = Vy.*,
+            0x1 => Vx.* = Vx.* | Vy.*,
+            0x2 => Vx.* = Vx.* & Vy.*,
+            0x3 => Vx.* = Vx.* ^ Vy.*,
+            0x4 => {
+                const result: u16 = Vx.* + Vy.*;
+                Vx.* = @truncate(result);
+                self._reg[0xF] = (result >> 8);
+            },
+            0x5, 0x7 => {
+                const result: i8 = Vx.* - Vy.*;
+                if (nibble == 0x7) {
+                    result = -result;
+                }
+                if (result < 0) {
+                    self._reg[0xF] = 0;
+                    Vx.* = 0x100 + result;
+                } else {
+                    self._reg[0xF] = 1;
+                    Vx.* = result;
+                }
+            },
+            0x6 => {
+                self._reg[0xF] = Vx.* & 1;
+                Vx.* >>= 1;
+            },
+            0xE => {
+                self._reg[0xF] = Vx.* >> 7;
+                Vx.* <<= 1;
+            },
+            else => self.panicOnUnknownInstruction(),
+        }
+    }
     // 1NNN; jumps to location NNN
     fn jumpToAddr(self: *Zhip) void {
         self._pc = 0x0FFF & self._reg_ir;
+    }
+    // BNNN; jumps to location NNN + V0
+    fn jumpToAddrPlusOffset(self: *Zhip) void {
+        self._pc = (0x0FFF & self._reg_ir) + self._reg[0x0];
     }
 
     // 6XNN; sets register Vx to NN
