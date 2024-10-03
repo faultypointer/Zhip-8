@@ -25,15 +25,35 @@ const KEY_MAP = [_]rl.KeyboardKey{
 };
 
 pub fn main() !void {
+    // get chip rom from args
+    var buffer: [1024]u8 = undefined;
+    for (0..buffer.len) |i| {
+        buffer[i] = 0;
+    }
+
     var zhip = Zhip.init();
-    try zhip.loadRomFromFile("roms/test_opcode.ch8");
+
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+
+    var args = try std.process.argsWithAllocator(allocator);
+    defer args.deinit();
+
+    // skip the first arg (program name)
+    _ = args.skip();
+    if (args.next()) |exists| {
+        try zhip.loadRomFromFile(exists);
+    } else {
+        std.debug.print("Usage: zhip8 <rom-file>\n", .{});
+        return;
+    }
     const screenWidth = zhip_mod.DISPLAY_WIDTH * PIXEL_SCALE;
     const screenHeight = zhip_mod.DISPLAY_HEIGHT * PIXEL_SCALE;
 
     rl.initWindow(screenWidth, screenHeight, "Zhip8");
     defer rl.closeWindow(); // Close window and OpenGL context
 
-    rl.setTargetFPS(60); // Set our game to run at 60 frames-per-second
+    // rl.setTargetFPS(60); // Set our game to run at 60 frames-per-second
 
     while (!rl.windowShouldClose()) {
         zhip.runCycle();
@@ -43,7 +63,6 @@ pub fn main() !void {
         for (0..KEY_MAP.len) |i| {
             if (rl.isKeyDown(KEY_MAP[i])) {
                 zhip.keys[i] = 1;
-                std.debug.print("{d}", .{zhip.keys});
             }
         }
         // key up
