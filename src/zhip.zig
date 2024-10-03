@@ -2,7 +2,7 @@ const std = @import("std");
 
 const DISPLAY_WIDTH: usize = 64;
 const DISPLAY_HEIGHT: usize = 32;
-const MEMORY_SIZE: usize = 4*1024;
+const MEMORY_SIZE: usize = 4 * 1024;
 const STACK_SIZE: usize = 16;
 
 // Struct that represents a chip 8 emulator
@@ -13,18 +13,17 @@ pub const Zhip = struct {
     _reg_dt: u8, // 8 bit delay timer register
     _reg_st: u8, // 8 bit sound timer resiter
     _reg_ir: u16, // 16 bit register to hold the current instruction
-    _pc: u16,// 16 bit program counter (rightmost 12 bits)
+    _pc: u16, // 16 bit program counter (rightmost 12 bits)
     _sp: u8, // stack pointer
     _stack: [STACK_SIZE]u16, // stack to hold return address from subroutine , can hold 16 addresses so 16 level of nested subroutine calls
 
     graphics: [DISPLAY_HEIGHT][DISPLAY_WIDTH]u8, // display
     keys: [16]u8, // input keys state
 
-
     pub fn init() Zhip {
-        var zhip =  Zhip {
+        var zhip = Zhip{
             ._ram = undefined,
-            ._reg= undefined,
+            ._reg = undefined,
             ._reg_i = 0,
             ._reg_dt = 0,
             ._reg_st = 0,
@@ -32,7 +31,6 @@ pub const Zhip = struct {
             ._pc = 0,
             ._sp = 0,
             ._stack = undefined,
-
 
             .graphics = undefined,
             .keys = undefined,
@@ -73,7 +71,7 @@ pub const Zhip = struct {
             0xF0, 0x80, 0x80, 0x80, 0xF0, // C
             0xE0, 0x90, 0x90, 0x90, 0xE0, // D
             0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
-            0xF0, 0x80, 0xF0, 0x80, 0x80,  // F
+            0xF0, 0x80, 0xF0, 0x80, 0x80, // F
         };
         @memcpy(zhip._ram[0x50..0xA0], &chracters_sprite);
 
@@ -86,8 +84,9 @@ pub const Zhip = struct {
         self._pc = 0x200;
     }
 
-    pub fn run(self: *Zhip) void {
+    pub fn runCycle(self: *Zhip) void {
         self.fetch();
+        self.decodeAndExecute();
     }
 
     fn fetch(self: *Zhip) void {
@@ -95,5 +94,102 @@ pub const Zhip = struct {
         self._pc += 1;
         self._reg_ir <<= 8;
         self._reg_ir += self._ram[self._pc];
+        self._pc += 1;
+    }
+
+    fn decodeAndExecute(self: *Zhip) void {
+        switch ((self._reg_ir & 0xF000) >> 12) {
+            0 => {
+                switch (self._reg_ir & 0x000F) {
+                    0 => self.clearDisplay(),
+                    // 0xE => self.returnFromSubroutine(),
+                    else => self.panicOnUnknownInstruction(),
+                }
+            },
+            1 => self.jumpToAddr(),
+
+            6 => self.setRegister(),
+            7 => self.addToRegister(),
+
+            0xA => self.loadIRegister(),
+
+            0xD => self.drawSprite(),
+            else => self.panicOnUnknownInstruction(),
+        }
+    }
+
+    // 00E0
+    fn clearDisplay(self: *Zhip) void {
+        for (0..DISPLAY_HEIGHT) |j| {
+            for (0..DISPLAY_WIDTH) |i| {
+                self.graphics[j][i] = 0;
+            }
+        }
+    }
+
+    // 1NNN; jumps to location NNN
+    fn jumpToAddr(self: *Zhip) void {
+        self._pc = 0x0FFF & self._reg_ir;
+    }
+
+    // 6XNN; sets register Vx to NN
+    fn setRegister(self: *Zhip) void {
+        const index = self.getXIndex();
+        // check for flags??
+        self._reg[index] = @intCast(self._reg_ir & 0x00FF);
+    }
+
+    // 7XNN; adds NN to Vx; result in Vx
+    fn addToRegister(self: *Zhip) void {
+        const index = self.getXIndex();
+        self._reg[index] += @intCast(self._reg_ir & 0x00FF);
+    }
+
+    // ANNN; I register is set to NNN
+    fn loadIRegister(self: *Zhip) void {
+        const addr = self._reg_ir & 0x0FFF;
+        self._reg_i = addr;
+    }
+
+    // DXYN; draws N bytes sprite starting from location I
+    // at coordinate (Vx, Vy) of display
+    fn drawSprite(self: *Zhip) void {
+        var vx: usize = @intCast(self._reg[self.getXIndex()]);
+        var vy: usize = @intCast(self._reg[self.getYIndex()]);
+        const sprite_height: usize = @intCast(self._reg_ir & 0x000F);
+        self._reg[0xF] = 0; // set Vf to 0 initially
+
+        for (0..sprite_height) |j| {
+            const current_sprite_byte = self._ram[@intCast(self._reg_i + j)];
+            for (0..8) |i| {
+                const shift: u3 = @intCast(i);
+                const current_sprite_pixel: u8 = (current_sprite_byte >> (7 - shift)) & 1;
+                // if any pixel in sprite causes any of the pixel in graphics to turn off (1 -> 0)
+                // then we set Vf to 1
+                if ((self._reg[0xF] == 0) and (self.graphics[vy][vx] & current_sprite_pixel == 1)) {
+                    self._reg[0xF] = 1;
+                }
+                self.graphics[vy][vx] ^= current_sprite_pixel;
+                vx = (vx + 1) % DISPLAY_WIDTH; // wrap around the sprite to left side
+            }
+            vy = (vy + 1) % DISPLAY_HEIGHT; // wrap around the sprite to top
+        }
+    }
+
+    fn panicOnUnknownInstruction(self: Zhip) noreturn {
+        std.debug.panic("unknown instruction: {X:0>4}\n", .{self._reg_ir});
+    }
+
+    // returns the index to the register array
+    // represented by the lower nibble of upper byte of
+    // the instruction (ie 0xFXFF)
+    fn getXIndex(self: Zhip) usize {
+        return @intCast((self._reg_ir & 0x0F00) >> 8);
+    }
+    // returns the index to the register array
+    // represented by the upper nibble of lower byte of
+    // the instruction (ie 0xFFYF)
+    fn getYIndex(self: Zhip) usize {
+        return @intCast((self._reg_ir & 0x00F0) >> 4);
     }
 };
