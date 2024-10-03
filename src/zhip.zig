@@ -236,7 +236,7 @@ pub const Zhip = struct {
                 }
                 if (result < 0) {
                     self._reg[0xF] = 0;
-                    Vx.* = @intCast(0xFF + result);
+                    Vx.* = @intCast(0x100 + result);
                 } else {
                     self._reg[0xF] = 1;
                     Vx.* = @intCast(result);
