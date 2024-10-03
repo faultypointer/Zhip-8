@@ -154,13 +154,13 @@ pub const Zhip = struct {
     // DXYN; draws N bytes sprite starting from location I
     // at coordinate (Vx, Vy) of display
     fn drawSprite(self: *Zhip) void {
-        var vx: usize = @intCast(self._reg[self.getXIndex()]);
-        var vy: usize = @intCast(self._reg[self.getYIndex()]);
+        var vy: usize = @intCast((self._reg[self.getYIndex()]) % DISPLAY_HEIGHT);
         const sprite_height: usize = @intCast(self._reg_ir & 0x000F);
         self._reg[0xF] = 0; // set Vf to 0 initially
 
         for (0..sprite_height) |j| {
             const current_sprite_byte = self._ram[@intCast(self._reg_i + j)];
+            var vx: usize = @intCast((self._reg[self.getXIndex()]) % DISPLAY_WIDTH);
             for (0..8) |i| {
                 const shift: u3 = @intCast(i);
                 const current_sprite_pixel: u8 = (current_sprite_byte >> (7 - shift)) & 1;
@@ -170,9 +170,15 @@ pub const Zhip = struct {
                     self._reg[0xF] = 1;
                 }
                 self.graphics[vy][vx] ^= current_sprite_pixel;
-                vx = (vx + 1) % DISPLAY_WIDTH; // wrap around the sprite to left side
+                vx = vx + 1;
+                if (vx == DISPLAY_WIDTH) {
+                    break;
+                }
             }
-            vy = (vy + 1) % DISPLAY_HEIGHT; // wrap around the sprite to top
+            vy = vy + 1;
+            if (vy == DISPLAY_HEIGHT) {
+                break;
+            }
         }
     }
 
