@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const DISPLAY_WIDTH: usize = 64;
-const DISPLAY_HEIGHT: usize = 32;
+pub const DISPLAY_WIDTH: usize = 64;
+pub const DISPLAY_HEIGHT: usize = 32;
 const MEMORY_SIZE: usize = 4 * 1024;
 const STACK_SIZE: usize = 16;
 
