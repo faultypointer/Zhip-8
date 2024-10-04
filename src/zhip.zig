@@ -104,6 +104,7 @@ pub const Zhip = struct {
         self._reg_ir <<= 8;
         self._reg_ir += self._ram[self._pc];
         self._pc += 1;
+        // std.debug.print("{X:0>4}; reg: {X:0>2} PC: {X:0>3}\n", .{ self._reg_ir, self._reg, self._pc & 0x0FFF });
     }
 
     fn decodeAndExecute(self: *Zhip) void {
@@ -235,20 +236,22 @@ pub const Zhip = struct {
                     result = -result;
                 }
                 if (result < 0) {
-                    self._reg[0xF] = 0;
                     Vx.* = @intCast(0x100 + result);
+                    self._reg[0xF] = 0;
                 } else {
-                    self._reg[0xF] = 1;
                     Vx.* = @intCast(result);
+                    self._reg[0xF] = 1;
                 }
             },
             0x6 => {
-                self._reg[0xF] = Vx.* & 1;
+                const res: u8 = Vx.* & 1;
                 Vx.* >>= 1;
+                self._reg[0xF] = res;
             },
             0xE => {
-                self._reg[0xF] = Vx.* >> 7;
+                const res: u8 = Vx.* >> 7;
                 Vx.* <<= 1;
+                self._reg[0xF] = res;
             },
             else => self.panicOnUnknownInstruction(),
         }
@@ -299,12 +302,13 @@ pub const Zhip = struct {
     // at coordinate (Vx, Vy) of display
     fn drawSprite(self: *Zhip) void {
         var vy: usize = @intCast((self._reg[self.getYIndex()]) % DISPLAY_HEIGHT);
+        const Vx: usize = @intCast((self._reg[self.getXIndex()]) % DISPLAY_WIDTH);
         const sprite_height: usize = @intCast(self._reg_ir & 0x000F);
         self._reg[0xF] = 0; // set Vf to 0 initially
 
         for (0..sprite_height) |j| {
             const current_sprite_byte = self._ram[@intCast(self._reg_i + j)];
-            var vx: usize = @intCast((self._reg[self.getXIndex()]) % DISPLAY_WIDTH);
+            var vx: usize = Vx;
             for (0..8) |i| {
                 const shift: u3 = @intCast(i);
                 const current_sprite_pixel: u8 = (current_sprite_byte >> (7 - shift)) & 1;

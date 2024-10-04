@@ -3,7 +3,7 @@ const rl = @import("raylib");
 const zhip_mod = @import("zhip.zig");
 const Zhip = zhip_mod.Zhip;
 
-const PIXEL_SCALE = 20;
+const PIXEL_SCALE = 30;
 
 const KEY_MAP = [_]rl.KeyboardKey{
     .key_x,
@@ -53,33 +53,31 @@ pub fn main() !void {
     rl.initWindow(screenWidth, screenHeight, "Zhip8");
     defer rl.closeWindow(); // Close window and OpenGL context
 
-    // rl.setTargetFPS(60); // Set our game to run at 60 frames-per-second
+    rl.setTargetFPS(60); // Set our game to run at 60 frames-per-second
 
     while (!rl.windowShouldClose()) {
-        zhip.runCycle();
-
         // key stuff
         // key down
         for (0..KEY_MAP.len) |i| {
-            if (rl.isKeyDown(KEY_MAP[i])) {
+            if (rl.isKeyPressed(KEY_MAP[i])) {
                 zhip.keys[i] = 1;
             }
         }
         // key up
         for (0..KEY_MAP.len) |i| {
-            if (rl.isKeyUp(KEY_MAP[i])) {
+            if (rl.isKeyReleased(KEY_MAP[i])) {
                 zhip.keys[i] = 0;
             }
         }
-
+        zhip.runCycle();
         rl.beginDrawing();
         defer rl.endDrawing();
         rl.clearBackground(rl.Color.black);
-        drawGraphics(zhip);
+        drawGraphics(&zhip);
     }
 }
 
-fn drawGraphics(zhip: Zhip) void {
+fn drawGraphics(zhip: *const Zhip) void {
     for (0..zhip_mod.DISPLAY_HEIGHT) |j| {
         for (0..zhip_mod.DISPLAY_WIDTH) |i| {
             if (zhip.graphics[j][i] == 1) {
