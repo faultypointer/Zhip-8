@@ -53,7 +53,7 @@ pub fn main() !void {
     rl.initWindow(screenWidth, screenHeight, "Zhip8");
     defer rl.closeWindow(); // Close window and OpenGL context
 
-    rl.setTargetFPS(60); // Set our game to run at 60 frames-per-second
+    // rl.setTargetFPS(60); // Set our game to run at 60 frames-per-second
 
     while (!rl.windowShouldClose()) {
         // key stuff

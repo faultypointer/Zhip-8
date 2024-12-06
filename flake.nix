@@ -15,6 +15,7 @@
             zig
             libGL
             glfw
+            raylib
             xorg.libX11
             xorg.libXcursor
             xorg.libXrandr
